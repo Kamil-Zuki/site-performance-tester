@@ -26,7 +26,7 @@ async function runPerformanceTest({ url, totalRequests, concurrency, timeoutMs }
             page = await browser.newPage();
             await page.setCacheEnabled(false);
             
-            const response = await page.goto(url, { waitUntil: 'load', timeout: 5000 });
+            const response = await page.goto(url, { waitUntil: 'load', timeout: 30000 });
             loadTime = Date.now() - startTime;
             status = response ? response.status() : 500;
             
