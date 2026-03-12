@@ -20,11 +20,19 @@ async function runPerformanceTest({ url, totalRequests, concurrency, timeoutMs }
         const startTime = Date.now();
         try {
             page = await browser.newPage();
-            // Отключаем кэш
+            // Отключаем кэш, чтобы тесты были честными
             await page.setCacheEnabled(false);
             
-            await page.goto(url, { waitUntil: 'load', timeout: 5000 });
+            // Ждем именно load: когда все изображения, скрипты и стили загружены
+            const response = await page.goto(url, { waitUntil: 'load', timeout: 5000 });
             const loadTime = Date.now() - startTime;
+            const status = response ? response.status() : 500;
+            
+            // Если сервер вернул ошибку, например 404, 500, 502, 503 и т.д.
+            if (status >= 400) {
+                failedRequests++;
+                return; 
+            }
             
             if (loadTime > timeoutMs) {
                 slowRequests++;
@@ -32,9 +40,9 @@ async function runPerformanceTest({ url, totalRequests, concurrency, timeoutMs }
             successfulRequests++;
         } catch (err) {
             if (err.name === 'TimeoutError' || err.message.includes('timeout')) {
-                // Если был таймаут, значит грузилось дольше лимита в 5с
+                // Страница загружалась дольше 5 секунд
                 slowRequests++;
-                successfulRequests++; // засчитаем как "успешный" с точки зрения доступности, но медленный
+                successfulRequests++; // Считаем успешным, но медленным
             } else {
                 failedRequests++;
             }
