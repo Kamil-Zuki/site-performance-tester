@@ -18,41 +18,55 @@ async function runPerformanceTest({ url, totalRequests, concurrency, timeoutMs }
     const runTask = async (taskId) => {
         let page;
         const startTime = Date.now();
+        let status = 0;
+        let loadTime = 0;
+        let error = null;
+
         try {
             page = await browser.newPage();
-            // Отключаем кэш, чтобы тесты были честными
             await page.setCacheEnabled(false);
             
-            // Ждем именно load: когда все изображения, скрипты и стили загружены
             const response = await page.goto(url, { waitUntil: 'load', timeout: 5000 });
-            const loadTime = Date.now() - startTime;
-            const status = response ? response.status() : 500;
+            loadTime = Date.now() - startTime;
+            status = response ? response.status() : 500;
             
-            // Если сервер вернул ошибку, например 404, 500, 502, 503 и т.д.
             if (status >= 400) {
                 failedRequests++;
-                return; 
-            }
-            
-            if (loadTime > timeoutMs) {
-                slowRequests++;
-            }
-            successfulRequests++;
-        } catch (err) {
-            if (err.name === 'TimeoutError' || err.message.includes('timeout')) {
-                // Страница загружалась дольше 5 секунд
-                slowRequests++;
-                successfulRequests++; // Считаем успешным, но медленным
             } else {
+                if (loadTime > timeoutMs) {
+                    slowRequests++;
+                }
+                successfulRequests++;
+            }
+        } catch (err) {
+            error = err.message;
+            if (err.name === 'TimeoutError' || err.message.includes('timeout')) {
+                status = 'Timeout';
+                loadTime = Date.now() - startTime;
+                slowRequests++;
+                successfulRequests++; 
+            } else {
+                status = 'Error';
                 failedRequests++;
             }
         } finally {
             if (page) await page.close();
             completedRequests++;
             
-            // Если передан коллбэк прогресса - вызываем его
             if (onProgress) {
-                onProgress({ completedRequests, totalRequests, slowRequests, failedRequests, successfulRequests });
+                onProgress({ 
+                    completedRequests, 
+                    totalRequests, 
+                    slowRequests, 
+                    failedRequests, 
+                    successfulRequests,
+                    lastResult: {
+                        taskId,
+                        status,
+                        loadTime,
+                        error
+                    }
+                });
             }
         }
     };
