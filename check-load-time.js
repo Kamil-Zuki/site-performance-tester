@@ -3,7 +3,7 @@ const puppeteer = require('puppeteer');
 /**
  * Запускает тест производительности
  */
-async function runPerformanceTest({ url, totalRequests, concurrency, timeoutMs }, onProgress) {
+async function runPerformanceTest({ url, totalRequests, concurrency, timeoutMs }, onProgress, checkCancelled = () => false) {
     let slowRequests = 0;
     let successfulRequests = 0;
     let failedRequests = 0;
@@ -61,6 +61,9 @@ async function runPerformanceTest({ url, totalRequests, concurrency, timeoutMs }
 
     const doWork = async () => {
         while (tasks.length > 0) {
+            // Если была дана команда на остановку - прерываем цикл задач
+            if (checkCancelled()) break;
+
             const taskId = tasks.shift();
             await runTask(taskId);
         }
