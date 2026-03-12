@@ -1,12 +1,9 @@
 const puppeteer = require('puppeteer');
 
-(async () => {
-    console.log('Запуск теста производительности: 100 запросов с рендерингом...');
-    const url = 'https://test.steos.io/company/individuals';
-    const totalRequests = 100;
-    const concurrency = 10; // Открываем 10 вкладок одновременно
-    const timeoutMs = 3000;
-    
+/**
+ * Запускает тест производительности
+ */
+async function runPerformanceTest({ url, totalRequests, concurrency, timeoutMs }, onProgress) {
     let slowRequests = 0;
     let successfulRequests = 0;
     let failedRequests = 0;
@@ -23,10 +20,9 @@ const puppeteer = require('puppeteer');
         const startTime = Date.now();
         try {
             page = await browser.newPage();
-            // Отключаем кэш, чтобы тесты были честными (каждый раз как первый заход)
+            // Отключаем кэш
             await page.setCacheEnabled(false);
             
-            // waitUntil: 'load' ждет загрузки всех ресурсов (картинок, скриптов, стилей)
             await page.goto(url, { waitUntil: 'load', timeout: 5000 });
             const loadTime = Date.now() - startTime;
             
@@ -36,24 +32,25 @@ const puppeteer = require('puppeteer');
             successfulRequests++;
         } catch (err) {
             if (err.name === 'TimeoutError' || err.message.includes('timeout')) {
-                // Если был таймаут, значит грузилось дольше 5с (и точно дольше 3с)
+                // Если был таймаут, значит грузилось дольше лимита в 5с
                 slowRequests++;
-                successfulRequests++; // засчитаем как успешный "медленный" заход, если страница начала грузиться
+                successfulRequests++; // засчитаем как "успешный" с точки зрения доступности, но медленный
             } else {
                 failedRequests++;
             }
         } finally {
             if (page) await page.close();
             completedRequests++;
-            // Выводим прогресс в консоль
-            process.stdout.write(`\rВыполнено: ${completedRequests}/${totalRequests} | Дольше 3с: ${slowRequests} | Ошибок: ${failedRequests}`);
+            
+            // Если передан коллбэк прогресса - вызываем его
+            if (onProgress) {
+                onProgress({ completedRequests, totalRequests, slowRequests, failedRequests, successfulRequests });
+            }
         }
     };
 
-    // Создаем очередь задач
     const tasks = Array.from({ length: totalRequests }, (_, i) => i + 1);
 
-    // Функция-worker, которая берет задачи из очереди
     const doWork = async () => {
         while (tasks.length > 0) {
             const taskId = tasks.shift();
@@ -61,16 +58,41 @@ const puppeteer = require('puppeteer');
         }
     };
 
-    // Запускаем worker-ы
     const workers = Array(concurrency).fill(null).map(() => doWork());
     await Promise.all(workers);
-
-    console.log('\n\n--- ИТОГИ ---');
-    console.log(`Всего запросов: ${totalRequests}`);
-    console.log(`Успешно завершено: ${successfulRequests}`);
-    console.log(`С ошибками (недоступно): ${failedRequests}`);
-    console.log(`Загружались дольше 3-5 секунд: ${slowRequests}`);
-    console.log(`Загружались быстрее 3 секунд: ${successfulRequests - slowRequests}`);
-    
     await browser.close();
-})();
+
+    return {
+        totalRequests,
+        successfulRequests,
+        failedRequests,
+        slowRequests,
+        fastRequests: successfulRequests - slowRequests
+    };
+}
+
+// Если скрипт запущен напрямую из консоли
+if (require.main === module) {
+    (async () => {
+        console.log('Запуск теста производительности из консоли (100 запросов)...');
+        const url = 'https://test.steos.io/company/individuals';
+        
+        const results = await runPerformanceTest({
+            url,
+            totalRequests: 100,
+            concurrency: 10,
+            timeoutMs: 3000
+        }, (progress) => {
+            process.stdout.write(`\rВыполнено: ${progress.completedRequests}/${progress.totalRequests} | Дольше 3с: ${progress.slowRequests} | Ошибок: ${progress.failedRequests}`);
+        });
+
+        console.log('\n\n--- ИТОГИ ---');
+        console.log(`Всего запросов: ${results.totalRequests}`);
+        console.log(`Успешно завершено: ${results.successfulRequests}`);
+        console.log(`С ошибками (недоступно): ${results.failedRequests}`);
+        console.log(`Загружались дольше 3-5 секунд: ${results.slowRequests}`);
+        console.log(`Загружались быстрее 3 секунд: ${results.fastRequests}`);
+    })();
+}
+
+module.exports = { runPerformanceTest };
